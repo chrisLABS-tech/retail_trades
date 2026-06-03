@@ -1,0 +1,20 @@
+# Cross-Asset Signal Options Scalper — runtime dependencies
+#
+# schwab-py is the unofficial Charles Schwab Trader API wrapper (OAuth, REST
+# quotes/orders/option-chains, streaming). Verified against PyPI: latest is
+# 1.5.1 at the time of writing. Imported as `from schwab import auth, client`.
+schwab-py>=1.5.1,<2.0
+
+# Data alignment, returns, statistics
+pandas>=2.0
+numpy>=1.24
+scipy>=1.10
+
+# Secrets loading from .env (never commit .env itself)
+python-dotenv>=1.0
+
+# Diagnostic / distribution plots for the validation report
+matplotlib>=3.7
+
+# Test runner
+pytest>=7.0

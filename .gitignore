@@ -1,0 +1,43 @@
+# Secrets — never commit these
+scalper/.env
+.env
+*.env
+!*.env.example
+
+# Schwab OAuth token store
+token.json
+scalper/token.json
+*.token.json
+
+# Local data store
+*.duckdb
+*.sqlite
+*.sqlite3
+*.db
+
+# Generated reports / plots
+reports/
+*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
