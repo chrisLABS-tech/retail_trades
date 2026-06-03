@@ -15,7 +15,7 @@ import math
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import pandas as pd
 
@@ -32,12 +32,59 @@ CREATE TABLE IF NOT EXISTS bars (
 );
 """
 
+_SAMPLES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS samples (
+    ts_ms          INTEGER NOT NULL,
+    symbol         TEXT    NOT NULL,
+    last_price     REAL,
+    trailing_ret   REAL,
+    realized_vol   REAL,
+    is_red         INTEGER,
+    red_count      INTEGER,
+    delta          REAL,
+    gamma          REAL,
+    theta          REAL,
+    vega           REAL,
+    rho            REAL,
+    volatility     REAL,
+    d_delta        REAL,
+    d_gamma        REAL,
+    d_theta        REAL,
+    d_vega         REAL,
+    d_rho          REAL,
+    d_volatility   REAL,
+    PRIMARY KEY (symbol, ts_ms)
+);
+"""
+
+# Numeric columns written/read for each 15-second sample, in schema order.
+_SAMPLE_COLUMNS: tuple[str, ...] = (
+    "last_price",
+    "trailing_ret",
+    "realized_vol",
+    "is_red",
+    "red_count",
+    "delta",
+    "gamma",
+    "theta",
+    "vega",
+    "rho",
+    "volatility",
+    "d_delta",
+    "d_gamma",
+    "d_theta",
+    "d_vega",
+    "d_rho",
+    "d_volatility",
+)
+
 
 def connect(path: str | Path) -> sqlite3.Connection:
     """Open (creating if needed) the sqlite store and ensure the schema."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.execute(_SCHEMA)
+    conn.execute(_SAMPLES_SCHEMA)
     conn.commit()
     return conn
 
@@ -106,6 +153,57 @@ def load_closes(
     # Preserve requested order; only keep columns that exist.
     ordered = [s for s in symbols if s in wide.columns]
     return wide[ordered].dropna(how="any").sort_index()
+
+
+def save_sample(
+    conn: sqlite3.Connection,
+    ts_ms: int,
+    symbol: str,
+    values: Mapping[str, object],
+) -> None:
+    """Upsert one 15-second monitor sample for ``symbol``.
+
+    Args:
+        conn: Open connection from :func:`connect`.
+        ts_ms: Sample time in epoch milliseconds.
+        symbol: The comparison/target symbol the sample describes.
+        values: Mapping of column name -> value; recognised keys are those in
+            :data:`_SAMPLE_COLUMNS`. Missing keys are stored as NULL.
+    """
+    row = [int(ts_ms), symbol]
+    row += [_opt(values.get(col)) for col in _SAMPLE_COLUMNS]
+    placeholders = ",".join("?" for _ in row)
+    columns = "ts_ms, symbol, " + ", ".join(_SAMPLE_COLUMNS)
+    with closing(conn.cursor()) as cur:
+        cur.execute(
+            f"INSERT OR REPLACE INTO samples ({columns}) VALUES ({placeholders})",
+            row,
+        )
+    conn.commit()
+
+
+def load_samples(
+    conn: sqlite3.Connection,
+    symbol: str,
+) -> pd.DataFrame:
+    """Load all stored 15-second samples for ``symbol`` as a time-indexed frame.
+
+    Returns a DataFrame indexed by tz-aware UTC timestamp with one column per
+    entry in :data:`_SAMPLE_COLUMNS`, sorted ascending. Empty if none stored.
+    """
+    cols = list(_SAMPLE_COLUMNS)
+    query = (
+        "SELECT ts_ms, " + ", ".join(cols) + " FROM samples "
+        "WHERE symbol = ? ORDER BY ts_ms"
+    )
+    rows = conn.execute(query, (symbol,)).fetchall()
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    frame = pd.DataFrame(rows, columns=["ts_ms", *cols])
+    index = pd.to_datetime(frame["ts_ms"], unit="ms", utc=True)
+    frame = frame.drop(columns=["ts_ms"])
+    frame.index = pd.DatetimeIndex(index, name="datetime")
+    return frame
 
 
 def _opt(value: object) -> float | None:

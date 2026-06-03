@@ -7,6 +7,7 @@ can be imported by the backtest and tests without any network or auth.
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass, field
 
 
@@ -98,6 +99,98 @@ class DataParams:
 DATA = DataParams()
 
 
+# --------------------------------------------------------------------------- #
+# Live monitor (Phase 3) — the 15-second statistics & greek sampler.
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class MonitorParams:
+    """Cadence and rolling-window settings for the live monitor.
+
+    Attributes:
+        sample_seconds: How often the latest-tick cache is sampled. The user
+            asked for a 15-second cadence; this is the single source of truth.
+        roll_window: Number of recent 15-second samples kept per symbol to
+            compute rolling statistics (trailing return, realized vol).
+        max_tick_age_s: A sampled tick older than this is treated as stale and
+            its stats/greeks are flagged (do not act on a frozen feed).
+    """
+
+    sample_seconds: float = 15.0
+    roll_window: int = 20
+    max_tick_age_s: float = 30.0
+
+
+MONITOR = MonitorParams()
+
+
+# --------------------------------------------------------------------------- #
+# Option selection (Phase 4/5) — how the ATM put to trade/track is chosen.
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class OptionParams:
+    """Which contract to pick when buying a put (or tracking a basket greek).
+
+    Attributes:
+        contract_type: ``"PUT"`` for the traded leg; the basket tracker uses the
+            same near-ATM logic to gauge sensitivity.
+        min_dte: Minimum days-to-expiration to consider (avoid same-day gamma
+            unless explicitly wanted).
+        max_dte: Maximum days-to-expiration (short-dated only).
+        moneyness_tolerance: Fraction of spot within which a strike counts as
+            "at the money" when ranking candidates (e.g. 0.05 == +/-5%).
+    """
+
+    contract_type: str = "PUT"
+    min_dte: int = 0
+    max_dte: int = 7
+    moneyness_tolerance: float = 0.05
+
+
+OPTION = OptionParams()
+
+
+# --------------------------------------------------------------------------- #
+# Execution (Phase 5) — order construction and the safety ramp.
+# --------------------------------------------------------------------------- #
+class ExecutionMode(enum.Enum):
+    """Safety ramp for order placement. Default is the safest (no orders).
+
+    DRY_RUN: build and log the order, never send it.
+    PAPER:   send to a paper/sandbox account (still real API calls).
+    LIVE:    send to the live brokerage account (tiny size only).
+    """
+
+    DRY_RUN = "dry-run"
+    PAPER = "paper"
+    LIVE = "live"
+
+
+@dataclass(frozen=True)
+class ExecutionParams:
+    """Order construction parameters for the put entry/exit.
+
+    Attributes:
+        mode: The safety-ramp mode; defaults to ``DRY_RUN`` so nothing is ever
+            sent by accident.
+        limit_offset_pct: When pricing a marketable limit, how far through the
+            mid toward the far touch to place the limit, as a fraction of the
+            bid/ask spread (0 == mid, 1 == far touch). Buys cross up, sells
+            cross down by this fraction.
+        take_profit_pct: Optional take-profit on the option's mark, as a
+            positive fraction (e.g. 0.5 == +50%). ``None`` disables it.
+        stop_loss_pct: Optional stop-loss on the option's mark, as a positive
+            fraction (e.g. 0.5 == -50%). ``None`` disables it.
+    """
+
+    mode: ExecutionMode = ExecutionMode.DRY_RUN
+    limit_offset_pct: float = 0.5
+    take_profit_pct: float | None = None
+    stop_loss_pct: float | None = None
+
+
+EXECUTION = ExecutionParams()
+
+
 # All symbols we need bars for (basket drives the signal, targets are measured).
 def all_symbols() -> list[str]:
     """Return the de-duplicated union of basket and target symbols."""
@@ -116,6 +209,9 @@ class Settings:
     signal: SignalParams = SIGNAL
     risk: RiskLimits = RISK
     data: DataParams = DATA
+    monitor: MonitorParams = MONITOR
+    option: OptionParams = OPTION
+    execution: ExecutionParams = EXECUTION
     max_spread_pct: float = MAX_SPREAD_PCT
 
 
