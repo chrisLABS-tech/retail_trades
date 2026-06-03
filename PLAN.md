@@ -90,9 +90,30 @@ scalper/
 - **Acceptance / decision gate:** if the signal's forward move is not meaningfully better than baseline after accounting for spread, **stop and rethink the signal** before building live infrastructure.
 
 ### Phase 2 — Trade journal & expectancy  *(not yet built)*
-### Phase 3 — Live signal monitor (read-only, no orders)  *(not yet built)*
-### Phase 4 — Liquidity screener  *(not yet built)*
-### Phase 5 — Execution (paper first, then tiny size)  *(not yet built)*
+### Phase 3 — Live signal monitor (read-only, no orders)  *(built)*
+- [x] `data/stream.py`: wrap `schwab-py`'s `StreamClient`, subscribe to
+  LEVELONE_EQUITIES (basket + targets) and LEVELONE_OPTIONS (near-ATM greeks),
+  route every message into a pure, thread-safe `TickCache`.
+- [x] `live/monitor.py`: a 15-second sampler (`MonitorParams.sample_seconds`,
+  default 15) that, per comparison stock, logs trailing return, realized vol,
+  red/not-red state, the basket-wide `red_count` (via the **unchanged** signal
+  definition), and the option greeks **plus their change since the previous
+  sample** (Δgreek). Samples persist to the sqlite `samples` table.
+- **Read-only:** never places orders.
+
+### Phase 4 — Liquidity screener  *(folded into selection)*
+- [x] `live/execute.select_atm_put` screens candidates by the existing
+  `MAX_SPREAD_PCT` spread-as-%-of-mid filter.
+
+### Phase 5 — Execution (paper first, then tiny size)  *(built, default dry-run)*
+- [x] `live/execute.py`: select a nearest-expiry, near-ATM **put** on a target,
+  build a marketable-limit **BUY_TO_OPEN**, and **SELL_TO_CLOSE** on whichever
+  fires first — the 10-minute time-stop (`HOLD_MINUTES`) or an optional
+  take-profit / stop-loss on the option mark.
+- [x] `live/risk.py`: pre-trade gate enforcing `MAX_CONTRACTS`,
+  `MAX_TRADES_PER_DAY` (mind PDT), `DAILY_LOSS_LIMIT`, and a kill switch.
+- [x] **Safety ramp:** `ExecutionMode` = `dry-run` (default, logs only) →
+  `paper` → `live` (tiny size). Nothing is ever sent unless explicitly armed.
 
 ## 7. Critical caveats
 
