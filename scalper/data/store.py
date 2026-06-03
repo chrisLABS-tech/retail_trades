@@ -11,6 +11,7 @@ the signal/backtest expects.
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -115,6 +116,6 @@ def _opt(value: object) -> float | None:
         f = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
-    if f != f:  # NaN
+    if math.isnan(f):
         return None
     return f

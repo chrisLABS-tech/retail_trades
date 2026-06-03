@@ -7,6 +7,8 @@ edge — is printed prominently so underlying edge is never mistaken for net P&L
 
 from __future__ import annotations
 
+import math
+
 from scalper.backtest.engine import TargetResult
 from scalper.backtest.stats import (
     TargetStats,
@@ -15,8 +17,15 @@ from scalper.backtest.stats import (
 )
 from scalper.config import SignalParams
 
-_PCT = lambda x: "n/a" if x != x else f"{x * 100:+.3f}%"  # noqa: E731
-_RATE = lambda x: "n/a" if x != x else f"{x * 100:.1f}%"  # noqa: E731
+
+def _pct(x: float) -> str:
+    """Format a fraction as a signed percentage, or 'n/a' for NaN."""
+    return "n/a" if math.isnan(x) else f"{x * 100:+.3f}%"
+
+
+def _rate(x: float) -> str:
+    """Format a fraction as an unsigned percentage rate, or 'n/a' for NaN."""
+    return "n/a" if math.isnan(x) else f"{x * 100:.1f}%"
 
 
 def _fmt_p(p: float | None) -> str:
@@ -42,21 +51,21 @@ def render_target_report(
         f"(signal: {params.min_red_count}/{params.lookback_minutes}m red, "
         f"hold {params.hold_minutes}m) " + "─" * 8,
         f"  fires (n):        {cond.n}    baseline bars (n): {base.n}",
-        f"  hit rate (<= {_PCT(stats.move_threshold)}):",
-        f"      signal:   {_RATE(cond.hit_rate)}",
-        f"      baseline: {_RATE(base.hit_rate)}",
+        f"  hit rate (<= {_pct(stats.move_threshold)}):",
+        f"      signal:   {_rate(cond.hit_rate)}",
+        f"      baseline: {_rate(base.hit_rate)}",
         "  forward move (underlying):",
-        f"      signal   mean {_PCT(cond.mean)}  median {_PCT(cond.median)}"
-        f"  [p25 {_PCT(cond.p25)}, p75 {_PCT(cond.p75)}]",
-        f"      baseline mean {_PCT(base.mean)}  median {_PCT(base.median)}",
+        f"      signal   mean {_pct(cond.mean)}  median {_pct(cond.median)}"
+        f"  [p25 {_pct(cond.p25)}, p75 {_pct(cond.p75)}]",
+        f"      baseline mean {_pct(base.mean)}  median {_pct(base.median)}",
         "  significance (signal mean vs baseline mean):",
-        f"      mean diff {_PCT(sig.mean_diff)}"
+        f"      mean diff {_pct(sig.mean_diff)}"
         f"   t-test p={_fmt_p(sig.t_pvalue)}"
         f"   bootstrap p={_fmt_p(sig.bootstrap_pvalue)}",
         f"      bootstrap 95% CI of diff: "
-        f"[{_PCT(sig.bootstrap_ci_low)}, {_PCT(sig.bootstrap_ci_high)}]",
+        f"[{_pct(sig.bootstrap_ci_low)}, {_pct(sig.bootstrap_ci_high)}]",
         f"  spread-haircut check (assume {assumed_spread_pct:.0f}% round-trip):",
-        f"      favorable move - spread = {_PCT(edge)} "
+        f"      favorable move - spread = {_pct(edge)} "
         + ("→ edge MAY survive spread" if survives
            else "→ edge does NOT survive spread (NO-GO signal)"),
     ]
