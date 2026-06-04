@@ -236,7 +236,11 @@ def run_news_expert(ticker: str, topic: str) -> AgentResult:
         sentiments = [0.5, -0.4, 0.3]
 
     # Compute aggregate sentiment
-    avg_sentiment = sum(sentiments) / len(sentiments)
+    if len(sentiments) > 0:
+        avg_sentiment = sum(sentiments) / len(sentiments)
+    else:
+        avg_sentiment = 0.0
+
     sentiment_str = (
         "Bullish" if avg_sentiment > 0.15 else "Bearish" if avg_sentiment < -0.15 else "Neutral"
     )
@@ -329,7 +333,7 @@ class CouncilOfExperts:
             action = f"Overextended technicals or soft headlines. Look for Put entry triggers."
         elif score <= -2:
             rating = "STRONG SELL / PUT BIAS"
-            action = f"Extremely overextended or bearish indicators. Complies with the downside options scalper strategy. Buy Puts!"
+            action = f"Extremely overextended or bearish indicators. Aligns with the downside options scalper strategy. Buy Puts!"
         else:
             rating = "NEUTRAL / NO CLEAR EDGE"
             action = "Conflicting indicators. Stand aside or monitor for further divergence."
@@ -337,7 +341,7 @@ class CouncilOfExperts:
         consensus = (
             f"=== COUNCIL OF EXPERTS CONSENSUS FOR {self.ticker} ===\n"
             f"User Intent: Analyze '{self.desire}'\n"
-            f"Composite Score: {score:+.1f} / Composite Rating: {rating}\n"
+            f"Composite Score: {score:+d} / Composite Rating: {rating}\n"
             f"Recommended Strategy: {action}\n"
             f"----------------------------------------------------\n"
             f"1. {earnings.summary}\n\n"
