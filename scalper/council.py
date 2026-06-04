@@ -58,14 +58,19 @@ def parse_desire(desire: str) -> tuple[str, str]:
             return ticker, topic
 
     # Look for 3-5 letter uppercase/lowercase tickers directly in quotes or text
-    match = re.search(r"\b([a-zA-Z]{3,5})\b", desire)
-    if match:
+    stop_words = {
+        "BUY", "SELL", "NEWS", "OUT", "THE", "MEAN", "LAST", "FOR", "AND",
+        "BUT", "WITH", "THIS", "THAT", "ANY", "ON", "GET", "PUT", "CALL",
+        "HOW", "WHY", "WHO", "WHAT", "WHEN", "TODAY", "LAST"
+    }
+    for match in re.finditer(r"\b([a-zA-Z]{3,5})\b", desire):
         found = match.group(1).upper()
-        if found not in ("BUY", "SELL", "NEWS", "OUT", "THE", "MEAN", "LAST"):
+        if found not in stop_words:
             ticker = found
-            topic = cleaned.replace(match.group(0), "").strip()
+            topic = cleaned.replace(match.group(0).lower(), "").strip()
             topic = re.sub(r"\b(on|for|about|with|in|of)\b", "", topic).strip()
             topic = re.sub(r"\s+", " ", topic)
+            break
 
     return ticker, topic or "general investigation"
 
