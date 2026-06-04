@@ -9,11 +9,12 @@
 Broker: **Charles Schwab** retail Trader API via the
 [`schwab-py`](https://schwab-py.readthedocs.io/) wrapper (OAuth, REST, streaming).
 
-> ⚠️ This repository implements **Phase 0 (setup & data gate)** and
-> **Phase 1 (signal validation)** only. Phase 1 is a **GO/NO-GO gate**. Live
-> monitoring and order execution are intentionally **not** built yet — do not
-> automate execution until the signal is validated and the gate is passed.
-> See [`PLAN.md`](PLAN.md) for the full roadmap.
+> ⚠️ **Phase 1 is a GO/NO-GO gate.** Phase 0 (setup & data gate) and Phase 1
+> (signal validation) justify everything else — do **not** arm live execution
+> until the signal is validated and the gate is passed. Phase 3 (live streaming
+> monitor) and Phase 5 (put execution) are now implemented: the monitor is
+> **read-only**, and execution defaults to **dry-run** (logs orders, never sends
+> them). See [`PLAN.md`](PLAN.md) for the full roadmap.
 
 ## Why Python
 
@@ -34,13 +35,18 @@ scalper/
     client.py          # authenticated schwab-py client w/ token refresh
   data/
     history.py         # intraday bars + quote-freshness (real-time) check
-    store.py           # optional local sqlite cache of bars
+    stream.py          # real-time stream wrapper + pure latest-tick cache
+    store.py           # optional local sqlite cache of bars + 15s samples
   signal/
     definition.py      # the signal as a PURE function of aligned bars
   backtest/
     engine.py          # forward returns at every signal fire
     stats.py           # hit rate, mean/median, baseline, significance
     report.py          # printable per-target validation report
+  live/
+    monitor.py         # 15-second stats + greek-delta sampler (READ-ONLY)
+    risk.py            # pre-trade gate: size, trades/day, daily loss, kill
+    execute.py         # ATM put selection + BTO/STC orders (default dry-run)
   tests/               # pytest suite (synthetic data, no network/auth)
 ```
 
@@ -103,8 +109,28 @@ Edit `scalper/config.py` (no secrets there):
 
 - `BASKET` / `TARGETS` — proxy signal inputs and traded names
 - `SignalParams` — `lookback_minutes`, `red_threshold`, `min_red_count`, `hold_minutes`
-- `MAX_SPREAD_PCT`, `RiskLimits` — liquidity & risk (used in later phases)
+- `MAX_SPREAD_PCT`, `RiskLimits` — liquidity & risk (enforced by `live/risk.py`)
 - `DataParams` — bar size, history length, hit-rate threshold, assumed spread
+- `MonitorParams` — `sample_seconds` (default **15**), rolling window, staleness
+- `OptionParams` — put DTE window and ATM moneyness tolerance for selection
+- `ExecutionParams` / `ExecutionMode` — limit offset, take-profit/stop, and the
+  `dry-run` → `paper` → `live` safety ramp (default `dry-run`)
+
+## Live monitor & execution (Phases 3 & 5)
+
+- `data/stream.py` wraps `schwab-py`'s `StreamClient`, subscribing to
+  LEVELONE_EQUITIES (basket + targets) and LEVELONE_OPTIONS (near-ATM greeks),
+  and feeds a pure, thread-safe `TickCache`.
+- `live/monitor.py` samples that cache **every 15 seconds**, logging each
+  comparison stock's trailing return, realized vol, red/not-red state, the
+  basket-wide `red_count` (via the unchanged signal definition), and the option
+  greeks **plus their change since the previous sample** (Δgreek). Samples
+  persist to the sqlite `samples` table for later review.
+- `live/execute.py` selects a nearest-expiry, near-ATM **put**, builds a
+  **BUY_TO_OPEN** limit, and **SELL_TO_CLOSE**s on whichever fires first: the
+  10-minute time-stop or an optional take-profit / stop-loss. Every entry passes
+  the `live/risk.py` gate first. **Nothing is sent unless `ExecutionMode` is
+  explicitly set to `paper` or `live`.**
 
 ## Tests
 
@@ -119,5 +145,7 @@ access, credentials, or `schwab-py` installed.
 ## Safety notes
 
 - **Secrets** live in `scalper/.env` (gitignored); tokens are never logged.
-- **Read-only first.** No orders are placed anywhere in this codebase.
+- **Read-only monitoring; gated execution.** The live monitor never trades, and
+  `live/execute.py` defaults to `ExecutionMode.DRY_RUN` — it logs the order but
+  does not send it. Arming `paper`/`live` is an explicit, deliberate choice.
 - **PDT rule:** under $25k on margin caps day trades at 3 per 5 business days.
