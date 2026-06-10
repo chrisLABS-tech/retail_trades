@@ -36,6 +36,8 @@ from scalper.data.stream import StreamManager, TickCache
 
 # OSI-style option symbol as used by the Schwab streamer: a root padded to six
 # characters, yymmdd expiration, C/P flag, then the strike in thousandths.
+# Roots may include "." (share classes, e.g. BRK.B), "$" and "^" (index/cash
+# conventions) in addition to letters.
 _OSI_RE = re.compile(r"^(?P<root>[A-Z.$^]{1,6})\s*(?P<exp>\d{6})(?P<cp>[CP])(?P<strike>\d{8})$")
 
 # Sparkline glyphs from low to high.
@@ -84,7 +86,11 @@ def require_put(symbol: str) -> str:
 
 
 def mid_price(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
-    """Midpoint of bid/ask, or None when either side is missing/invalid."""
+    """Midpoint of bid/ask, or None when either side is missing/invalid.
+
+    A zero bid is legitimate for a near-worthless put (no buyers), so only the
+    ask must be strictly positive.
+    """
     if isinstance(bid, (int, float)) and isinstance(ask, (int, float)) and bid >= 0 and ask > 0:
         return (float(bid) + float(ask)) / 2.0
     return None
@@ -301,7 +307,7 @@ def replay(
     prev_ts: Optional[int] = None
     count = 0
     for ts, row in frame.iterrows():
-        ts_ms = int(ts.value // 1_000_000)
+        ts_ms = int(ts.value // 1_000_000)  # pandas .value is ns -> ms
         if prev_ts is not None:
             sleep_fn(max(ts_ms - prev_ts, 0) / 1000.0 / speed)
         prev_ts = ts_ms
