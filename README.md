@@ -45,6 +45,7 @@ scalper/
     report.py          # printable per-target validation report
   live/
     monitor.py         # 15-second stats + greek-delta sampler (READ-ONLY)
+    puts_viewer.py     # live put bid/mid/ask viewer + record/replay (READ-ONLY)
     risk.py            # pre-trade gate: size, trades/day, daily loss, kill
     execute.py         # ATM put selection + BTO/STC orders (default dry-run)
   tests/               # pytest suite (synthetic data, no network/auth)
@@ -131,6 +132,35 @@ Edit `scalper/config.py` (no secrets there):
   10-minute time-stop or an optional take-profit / stop-loss. Every entry passes
   the `live/risk.py` gate first. **Nothing is sent unless `ExecutionMode` is
   explicitly set to `paper` or `live`.**
+
+## Live put viewer (visualize, record & replay — no orders)
+
+`live/puts_viewer.py` tracks **one user-provided put** (no buy/sell orders —
+it never touches the execution layer) and visualizes its **bid / mid / ask**
+live from the Schwab stream:
+
+```bash
+# Live: stream, render and record the put's quotes (1s cadence by default)
+python -m scalper.live.puts_viewer --option "INFQ  250620P00021000" \
+    --db scalper/data/scalper.sqlite
+```
+
+Each line shows the time, bid/mid/ask, a spread gauge placing the mid between
+the bid and ask, and a sparkline of recent mids:
+
+```
+14:32:05 INFQ  250620P00021000 bid=   1.05 mid=   1.10 ask=   1.15 [B---------M---------A] ▁▂▄▆█
+```
+
+Every sample is stored in the sqlite `option_quotes` table, so a session can be
+**replayed** later with the same visualization — no auth or network needed:
+
+```bash
+python -m scalper.live.puts_viewer --option "INFQ  250620P00021000" \
+    --db scalper/data/scalper.sqlite --replay --speed 10
+```
+
+Calls (and anything that isn't a put) are rejected before any auth happens.
 
 ## Tests
 

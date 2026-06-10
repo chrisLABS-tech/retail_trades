@@ -57,6 +57,18 @@ CREATE TABLE IF NOT EXISTS samples (
 );
 """
 
+_QUOTES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS option_quotes (
+    ts_ms   INTEGER NOT NULL,
+    symbol  TEXT    NOT NULL,
+    bid     REAL,
+    ask     REAL,
+    mid     REAL,
+    last    REAL,
+    PRIMARY KEY (symbol, ts_ms)
+);
+"""
+
 # Numeric columns written/read for each 15-second sample, in schema order.
 _SAMPLE_COLUMNS: tuple[str, ...] = (
     "last_price",
@@ -85,6 +97,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.execute(_SCHEMA)
     conn.execute(_SAMPLES_SCHEMA)
+    conn.execute(_QUOTES_SCHEMA)
     conn.commit()
     return conn
 
@@ -197,6 +210,58 @@ def load_samples(
         "WHERE symbol = ? ORDER BY ts_ms"
     )
     rows = conn.execute(query, (symbol,)).fetchall()
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    frame = pd.DataFrame(rows, columns=["ts_ms", *cols])
+    index = pd.to_datetime(frame["ts_ms"], unit="ms", utc=True)
+    frame = frame.drop(columns=["ts_ms"])
+    frame.index = pd.DatetimeIndex(index, name="datetime")
+    return frame
+
+
+def save_quote(
+    conn: sqlite3.Connection,
+    ts_ms: int,
+    symbol: str,
+    values: Mapping[str, object],
+) -> None:
+    """Upsert one bid/mid/ask option quote for ``symbol``.
+
+    Args:
+        conn: Open connection from :func:`connect`.
+        ts_ms: Quote time in epoch milliseconds.
+        symbol: The option (OSI) symbol the quote describes.
+        values: Mapping with optional ``bid``, ``ask``, ``mid``, ``last`` keys.
+            Missing keys are stored as NULL.
+    """
+    with closing(conn.cursor()) as cur:
+        cur.execute(
+            "INSERT OR REPLACE INTO option_quotes "
+            "(ts_ms, symbol, bid, ask, mid, last) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                int(ts_ms),
+                symbol,
+                _opt(values.get("bid")),
+                _opt(values.get("ask")),
+                _opt(values.get("mid")),
+                _opt(values.get("last")),
+            ),
+        )
+    conn.commit()
+
+
+def load_quotes(conn: sqlite3.Connection, symbol: str) -> pd.DataFrame:
+    """Load all stored option quotes for ``symbol`` as a time-indexed frame.
+
+    Returns a DataFrame indexed by tz-aware UTC timestamp with ``bid``,
+    ``ask``, ``mid`` and ``last`` columns, sorted ascending. Empty if none.
+    """
+    cols = ["bid", "ask", "mid", "last"]
+    rows = conn.execute(
+        "SELECT ts_ms, bid, ask, mid, last FROM option_quotes "
+        "WHERE symbol = ? ORDER BY ts_ms",
+        (symbol,),
+    ).fetchall()
     if not rows:
         return pd.DataFrame(columns=cols)
     frame = pd.DataFrame(rows, columns=["ts_ms", *cols])
